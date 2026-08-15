@@ -1,0 +1,148 @@
+{
+  "name": "W05-visual-production",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "w05-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Execute Workflow Trigger').first().json;\nconst dims = {\n  linkedin_post: '1200x627',\n  instagram_square: '1080x1080',\n  instagram_story: '1080x1920',\n  facebook_post: '1200x630',\n  x_post: '1600x900',\n  tiktok: '1080x1920',\n  youtube_thumbnail: '1280x720',\n  featured: '1200x630'\n};\n\nconst formats = (item.formats || ['featured','instagram_square','linkedin_post']).map(f => ({\n  name: f,\n  dimensions: dims[f] || '1080x1080'\n}));\n\nconst system = 'أنت مخرج فني محترف. اكتب وصف توليد صور (image prompt) باللغة الإنجليزية بوضوح.';\nconst user = 'الموضوع: ' + item.topic +\n  '\\nBrand: ' + (item.brand_style || 'نظيف، حديث، ألوان هادئة، بدون نص عربي كبير') +\n  '\\nالتنسيقات المطلوبة: ' + JSON.stringify(formats) +\n  '\\nأعد: {\"prompts\":[{\"format\":\"...\",\"prompt\":\"...\",\"negative_prompt\":\"no text, no watermark, no logos\"}],\"canva_template\":{\"template_id\":\"...\",\"notes\":\"...\"}}.';\n\nreturn [{ json: { task_type: 'image_director', payload: { system, user } } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w05-prompt",
+      "name": "Build Image Prompts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w05-ai",
+      "name": "AI Image Prompts",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.IMAGE_API_URL }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.IMAGE_MODEL || 'dall-e-3', prompt: $json.prompts[0].prompt, n: 1, size: '1024x1024' }) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "w05-gen",
+      "name": "Generate Image (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $json.filename || 'asset-' + $json.content_id + '.png' }}",
+        "options": {
+          "resolveWithFullResponse": true
+        }
+      },
+      "id": "w05-upload",
+      "name": "Upload to Cloud Storage",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 2.1,
+      "position": [-400, 0],
+      "credentials": {
+        "s3": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "S3 / Cloud Storage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Assets",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w05-save",
+      "name": "Save Asset Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-200, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [{ "node": "Build Image Prompts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Image Prompts": {
+      "main": [
+        [{ "node": "AI Image Prompts", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Image Prompts": {
+      "main": [
+        [{ "node": "Generate Image (API)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Image (API)": {
+      "main": [
+        [{ "node": "Upload to Cloud Storage", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload to Cloud Storage": {
+      "main": [
+        [{ "node": "Save Asset Registry", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

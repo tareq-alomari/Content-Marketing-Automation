@@ -1,0 +1,240 @@
+{
+  "name": "sub_ai-orchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "orchestrator-trigger",
+      "name": "When Called (Execute Workflow)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "task_type",
+              "value": "={{ $json.task_type }}"
+            },
+            {
+              "name": "payload",
+              "value": "={{ JSON.stringify($json.payload) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "orchestrator-input",
+      "name": "Capture Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "dataPropertyName": "model_choice",
+        "rules": {
+          "values": [
+            {
+              "leftValue": "={{ $json.task_type }}",
+              "rightValue": "generation,repurpose,draft_writer,image_director",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              },
+              "typeValidation": "loose",
+              "value": "strong"
+            },
+            {
+              "leftValue": "={{ $json.task_type }}",
+              "rightValue": "seo_optimizer,researcher,performance_analyst,decay_auditor",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              },
+              "typeValidation": "loose",
+              "value": "light"
+            }
+          ]
+        }
+      },
+      "id": "orchestrator-router",
+      "name": "Model Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $env.MODEL_GENERATION || 'gpt-4o' }}\",\n  \"temperature\": 0.7,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    { \"role\": \"system\", \"content\": {{ JSON.stringify($json.payload.system) }} },\n    { \"role\": \"user\", \"content\": {{ JSON.stringify($json.payload.user) }} }\n  ]\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "orchestrator-openai",
+      "name": "OpenAI (Strong Model)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $env.MODEL_LIGHT || 'gpt-4o-mini' }}\",\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    { \"role\": \"system\", \"content\": {{ JSON.stringify($json.payload.system) }} },\n    { \"role\": \"user\", \"content\": {{ JSON.stringify($json.payload.user) }} }\n  ]\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "orchestrator-openai-light",
+      "name": "OpenAI (Light Model)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-600, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse OpenAI response into clean JSON\nconst raw = $json.choices && $json.choices[0] && $json.choices[0].message\n  ? $json.choices[0].message.content\n  : JSON.stringify($json);\n\ntry {\n  const parsed = JSON.parse(raw);\n  return [{ json: { ...parsed, _meta: { model: raw.includes('4o-mini') ? 'light' : 'strong', task: $('Capture Input').first().json.task_type } } }];\n} catch (e) {\n  // Attempt to strip markdown fences if present\n  const stripped = raw.replace(/```(?:json)?\\n?/g, '').trim();\n  try {\n    const parsed = JSON.parse(stripped);\n    return [{ json: { ...parsed, _meta: { repaired: true, task: $('Capture Input').first().json.task_type } } }];\n  } catch (e2) {\n    throw new Error('AI returned invalid JSON: ' + raw.slice(0, 300));\n  }\n}",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "orchestrator-parse",
+      "name": "Parse & Validate JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "noticesToShow": {
+            "onboardingNotices": true
+          }
+        }
+      },
+      "id": "orchestrator-output",
+      "name": "Return Output",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [-200, 0]
+    }
+  ],
+  "connections": {
+    "When Called (Execute Workflow)": {
+      "main": [
+        [
+          {
+            "node": "Capture Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capture Input": {
+      "main": [
+        [
+          {
+            "node": "Model Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Router": {
+      "main": [
+        [
+          {
+            "node": "OpenAI (Strong Model)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenAI (Light Model)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenAI (Strong Model)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (Strong Model)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (Light Model)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate JSON": {
+      "main": [
+        [
+          {
+            "node": "Return Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

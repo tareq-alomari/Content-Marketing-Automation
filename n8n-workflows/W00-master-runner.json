@@ -1,0 +1,208 @@
+{
+  "name": "W00-master-runner",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "w00-trigger-manual",
+      "name": "Manual (Run Everything Once)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1600, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "w00-trigger-schedule",
+      "name": "Schedule (Weekly Full Run)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1600, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { run_id: 'RUN-' + Date.now(), started_at: new Date().toISOString(), steps: [] } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w00-init",
+      "name": "Init Run Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "plan-content-engine",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-plan",
+      "name": "1) Plan + Produce Due Items",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "idea-generator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": false,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-ideas",
+      "name": "2) Generate Ideas",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "publishing-distribution",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": false,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-publish",
+      "name": "3) Publish Approved Items",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "analytics-collection",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": false,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-analytics",
+      "name": "4) Collect Analytics",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "performance-analysis",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": false,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-analysis",
+      "name": "5) Performance Analysis (AI)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "optimization-decay",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": false,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w00-step-decay",
+      "name": "6) Detect Decay + Refresh",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stepResults = $input.all().map(i => i.json);\nreturn [{\n  json: {\n    run_id: $('Init Run Context').first().json.run_id,\n    status: 'completed',\n    finished_at: new Date().toISOString(),\n    steps: [\n      'plan+produce', 'ideas', 'publish',\n      'analytics', 'performance', 'decay'\n    ],\n    note: 'المرئيات وإعادة الاستخدام تُشغَّل داخلياً من content-production. البحث (W03) يعمل لكل عنصر عند الحاجة.'\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w00-summary",
+      "name": "Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    }
+  ],
+  "connections": {
+    "Manual (Run Everything Once)": {
+      "main": [
+        [{ "node": "Init Run Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Schedule (Weekly Full Run)": {
+      "main": [
+        [{ "node": "Init Run Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Init Run Context": {
+      "main": [
+        [{ "node": "1) Plan + Produce Due Items", "type": "main", "index": 0 }]
+      ]
+    },
+    "1) Plan + Produce Due Items": {
+      "main": [
+        [{ "node": "2) Generate Ideas", "type": "main", "index": 0 }]
+      ]
+    },
+    "2) Generate Ideas": {
+      "main": [
+        [{ "node": "3) Publish Approved Items", "type": "main", "index": 0 }]
+      ]
+    },
+    "3) Publish Approved Items": {
+      "main": [
+        [{ "node": "4) Collect Analytics", "type": "main", "index": 0 }]
+      ]
+    },
+    "4) Collect Analytics": {
+      "main": [
+        [{ "node": "5) Performance Analysis (AI)", "type": "main", "index": 0 }]
+      ]
+    },
+    "5) Performance Analysis (AI)": {
+      "main": [
+        [{ "node": "6) Detect Decay + Refresh", "type": "main", "index": 0 }]
+      ]
+    },
+    "6) Detect Decay + Refresh": {
+      "main": [
+        [{ "node": "Run Summary", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

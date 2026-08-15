@@ -1,0 +1,165 @@
+{
+  "name": "W07-approval-gate",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "approval",
+        "responseMode": "onReceived",
+        "options": {
+          "responseHeaders": {
+            "entries": []
+          }
+        }
+      },
+      "id": "w07-webhook",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1200, 0],
+      "webhookId": "approval-gate-wbh"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Approval Webhook').first().json;\nconst body = item.body || item;\n\n// تحقق من التوقيع (Signature) إن كان مفعلاً\nconst expected = $env.APPROVAL_SIGNING_KEY;\nif (expected) {\n  const received = body.signature || item.headers?.['x-signature'];\n  if (received !== expected) {\n    throw new Error('Invalid webhook signature');\n  }\n}\n\nreturn [{\n  json: {\n    content_id: body.content_id,\n    decision: body.decision,\n    comment: body.comment || '',\n    by_who: body.reviewer || 'unknown',\n    at_when: new Date().toISOString()\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w07-parse",
+      "name": "Parse Decision + Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "dataPropertyName": "decision",
+        "rules": {
+          "values": [
+            {
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "typeValidation": "loose",
+              "value": "approve"
+            },
+            {
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "reject",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "typeValidation": "loose",
+              "value": "reject"
+            },
+            {
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "revise",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "typeValidation": "loose",
+              "value": "revise"
+            }
+          ]
+        }
+      },
+      "id": "w07-switch",
+      "name": "Decision Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dec = $input.first().json.decision;\nconst status = { approve: 'approved', reject: 'rejected', revise: 'revision' }[dec] || 'unknown';\nreturn [{ json: { ...$input.first().json, status } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w07-status",
+      "name": "Set Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Approvals",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w07-log",
+      "name": "Log Approval Decision",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-400, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const dec = $input.first().json.decision;\nconst msg = dec === 'approve'\n  ? { json: { status: 'approved', content_id: $input.first().json.content_id, action: 'publish_queue' } }\n  : dec === 'reject'\n    ? { json: { status: 'rejected', content_id: $input.first().json.content_id, action: 'archive' } }\n    : { json: { status: 'revision', content_id: $input.first().json.content_id, action: 'revision_queue', comment: $input.first().json.comment } };\nreturn [msg];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w07-done",
+      "name": "Dispatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0]
+    }
+  ],
+  "connections": {
+    "Approval Webhook": {
+      "main": [
+        [{ "node": "Parse Decision + Verify Signature", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Decision + Verify Signature": {
+      "main": [
+        [{ "node": "Decision Switch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Decision Switch": {
+      "main": [
+        [{ "node": "Set Status", "type": "main", "index": 0 }],
+        [{ "node": "Set Status", "type": "main", "index": 0 }],
+        [{ "node": "Set Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set Status": {
+      "main": [
+        [{ "node": "Log Approval Decision", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Approval Decision": {
+      "main": [
+        [{ "node": "Dispatch", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

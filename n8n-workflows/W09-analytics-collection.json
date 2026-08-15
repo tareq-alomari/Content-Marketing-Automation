@@ -1,0 +1,160 @@
+{
+  "name": "W09-analytics-collection",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "w09-trigger",
+      "name": "Schedule (Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "propertyId": "={{ $env.GA4_PROPERTY_ID }}",
+        "resource": "property",
+        "operation": "runReport",
+        "dateRanges": {
+          "startDate": "={{ $now.minus({days: 1}).toFormat('yyyy-MM-dd') }}",
+          "endDate": "={{ $now.toFormat('yyyy-MM-dd') }}"
+        },
+        "metrics": [
+          { "name": "sessions" },
+          { "name": "totalUsers" },
+          { "name": "screenPageViews" },
+          { "name": "engagementRate" },
+          { "name": "conversions" }
+        ],
+        "dimensions": [
+          { "name": "pagePath" },
+          { "name": "source" }
+        ]
+      },
+      "id": "w09-ga4",
+      "name": "GA4 RunReport",
+      "type": "n8n-nodes-base.googleAnalytics",
+      "typeVersion": 2,
+      "position": [-1000, 0],
+      "credentials": {
+        "googleAnalyticsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Analytics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://searchconsole.googleapis.com/v1/sites/{{ $env.GSC_SITE_URL }}/searchAnalytics/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "googleServiceAccount",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ startDate: $now.minus({days: 1}).toFormat('yyyy-MM-dd'), endDate: $now.toFormat('yyyy-MM-dd'), dimensions: ['page'], rowLimit: 100 }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "w09-gsc",
+      "name": "Search Console Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1000, 200]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "w09-merge",
+      "name": "Merge GA4 + GSC",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst normalized = rows.map(r => {\n  const source = r.source || (r.keys && r.keys[0]) || 'unknown';\n  const metrics = {};\n  (r.metricHeaders || r.metrics || []).forEach(h => {\n    metrics[h.name] = Number(r.metricValues?.[h.name] ?? 0);\n  });\n  return {\n    json: {\n      date: $now.toFormat('yyyy-MM-dd'),\n      page: r.page || r.keys?.[0] || source,\n      source,\n      sessions: metrics.sessions || 0,\n      users: metrics.totalUsers || 0,\n      pageviews: metrics.screenPageViews || 0,\n      engagement_rate: metrics.engagementRate || 0,\n      conversions: metrics.conversions || 0,\n      impressions: r.clicks === undefined ? (metrics.impressions || 0) : 0,\n      clicks: r.clicks || 0,\n      ctr: r.ctr || 0,\n      position: r.position || 0\n    }\n  };\n});\nreturn normalized;",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w09-normalize",
+      "name": "Normalize Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Analytics",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w09-save",
+      "name": "Save to Analytics Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-400, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule (Daily)": {
+      "main": [
+        [{ "node": "Merge GA4 + GSC", "type": "main", "index": 0 }]
+      ]
+    },
+    "GA4 RunReport": {
+      "main": [
+        [{ "node": "Merge GA4 + GSC", "type": "main", "index": 0 }]
+      ]
+    },
+    "Search Console Query": {
+      "main": [
+        [{ "node": "Merge GA4 + GSC", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge GA4 + GSC": {
+      "main": [
+        [{ "node": "Normalize Metrics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Metrics": {
+      "main": [
+        [{ "node": "Save to Analytics Sheet", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

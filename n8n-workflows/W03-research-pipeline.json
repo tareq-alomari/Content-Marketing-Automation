@@ -1,0 +1,144 @@
+{
+  "name": "W03-research-pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "w03-trigger",
+      "name": "Manual / Execute Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Manual / Execute Workflow').first().json;\nreturn [{\n  json: {\n    topic: item.topic,\n    keyword: item.keyword || item.topic,\n    content_id: item.content_id\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w03-extract",
+      "name": "Extract Research Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://suggestqueries.google.com/complete/search?client=firefox&q={{ encodeURIComponent($json.keyword) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "w03-google-suggest",
+      "name": "Google Autocomplete (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $('Google Autocomplete (HTTP)').first().json;\nconst list = Array.isArray(raw) ? raw[1] || [] : [];\nconst suggestions = list.map(s => (typeof s === 'string' ? s : JSON.stringify(s)));\n\nconst item = $('Extract Research Input').first().json;\nreturn [{\n  json: {\n    ...item,\n    autocomplete: suggestions,\n    related_topics: [], // تملأ من AI في الخطوة التالية\n    questions: [],\n    long_tail: []\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w03-parse-suggest",
+      "name": "Parse Suggestions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w03-ai",
+      "name": "AI Semantic Research",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst enriched = item.research || {};\nreturn [{\n  json: {\n    content_id: item.content_id,\n    topic: item.topic,\n    keyword: item.keyword,\n    search_intent: enriched.search_intent || 'informational',\n    related_topics: enriched.related_topics || item.related_topics || [],\n    questions: enriched.questions || [],\n    faqs: enriched.faqs || [],\n    long_tail_keywords: enriched.long_tail_keywords || [],\n    semantic_keywords: enriched.semantic_keywords || [],\n    competitor_gaps: enriched.competitor_gaps || [],\n    trending_angles: enriched.trending_angles || []\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w03-normalize",
+      "name": "Normalize Research Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Research",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w03-save",
+      "name": "Save Research",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [0, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual / Execute Workflow": {
+      "main": [
+        [{ "node": "Extract Research Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Research Input": {
+      "main": [
+        [{ "node": "Google Autocomplete (HTTP)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Autocomplete (HTTP)": {
+      "main": [
+        [{ "node": "Parse Suggestions", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Suggestions": {
+      "main": [
+        [{ "node": "AI Semantic Research", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Semantic Research": {
+      "main": [
+        [{ "node": "Normalize Research Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Research Output": {
+      "main": [
+        [{ "node": "Save Research", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

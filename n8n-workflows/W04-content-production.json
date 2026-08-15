@@ -1,0 +1,362 @@
+{
+  "name": "W04-content-production",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "w04-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Execute Workflow Trigger').first().json;\n\nconst context = {\n  brand_voice: $env.BRAND_VOICE || 'واضح، عملي، يعتمد على البيانات، يكتب للعربية باحتراف',\n  persona: item.persona_description || item.persona_id || 'القارئ المستهدف',\n  pillar: item.pillar,\n  topic: item.topic,\n  primary_keyword: item.keyword,\n  secondary_keywords: item.secondary_keywords || [],\n  search_intent: item.search_intent || 'informational',\n  funnel_stage: item.funnel_stage || 'consideration',\n  content_type: item.content_type || 'blog',\n  platforms: item.platforms || ['LinkedIn'],\n  cta: item.cta || 'اشترك في النشرة',\n  target_kpi: item.target_kpi || 'engagement',\n  word_target: item.word_target || 900,\n  research: item.research || null,\n  content_id: item.content_id,\n  revision_count: item.revision_count || 0\n};\n\nconst system = 'أنت كاتب محتوى محترف في التسويق بالمحتوى. أعد JSON صالح فقط بدون أي نص خارج JSON.';\nconst user = 'السياق: ' + JSON.stringify(context) +\n  '\\nالمهمة: اكتب مقالاً كاملاً حسب البنية التالية:\\n' +\n  '{\"title\":\"...\",\"sections\":[{\"h2\":\"...\",\"h3\":\"...\",\"content\":\"...\"}],\"summary\":\"...\",\"faqs\":[{\"question\":\"...\",\"answer\":\"...\"}],\"cta_copy\":\"...\",\"suggested_slug\":\"...\"}' +\n  '\\nالشروط: أصلي وغير مكرر، استخدم الكلمة الرئيسية في العنوان والمقدمة، جملاً قصيرة، ضع [تحقق] لأي رقم غير مؤكد.';\n\nreturn [{ json: { task_type: 'draft_writer', payload: { system, user } } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-context",
+      "name": "Build Generation Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w04-ai-draft",
+      "name": "AI Generate Draft",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const draft = $input.first().json;\nconst src = $('Build Generation Context').first().json;\n\nconst validation = {\n  has_title: !!draft.title,\n  has_sections: Array.isArray(draft.sections) && draft.sections.length >= 3,\n  has_cta: !!draft.cta_copy,\n  word_count: (draft.title || '') + JSON.stringify(draft.sections || []).replace(/[\\u0000-\\u007F]/g, ' ').split(/\\s+/).length,\n  contains_keyword: (draft.title || '').toLowerCase().includes((src.primary_keyword || '').toLowerCase())\n};\n\nconst pass = validation.has_title && validation.has_sections && validation.has_cta && validation.word_count >= 300;\n\nreturn [{ json: { ...src, draft, validation, valid: pass } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-validate-draft",
+      "name": "Validate Draft (Schema)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "draft-ok",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w04-if-draft",
+      "name": "IF Draft Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Build Generation Context').first().json;\nconst system = 'أنت خبير SEO. أعد JSON صالحاً فقط.';\nconst content = JSON.stringify($('Validate Draft (Schema)').first().json.draft || {});\nconst user = 'نص المحتوى: ' + content +\n  '\\nالكلمة الرئيسية: ' + src.primary_keyword +\n  '\\nالكلمات الداعمة: ' + JSON.stringify(src.secondary_keywords) +\n  '\\nأعد: {\"seo_title\":\"...\",\"meta_description\":\"...\",\"slug\":\"...\",\"h1\":\"...\",\"h2\":[\"...\"],\"h3\":[\"...\"],\"faq\":[{\"question\":\"...\",\"answer\":\"...\"}],\"internal_links\":[\"...\"],\"external_links\":[\"...\"],\"image_alt\":[\"...\"],\"schema_type\":\"Article\",\"seo_score\":0}.\" ;\n\nreturn [{ json: { task_type: 'seo_optimizer', payload: { system, user } } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-seo-prompt",
+      "name": "Build SEO Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w04-ai-seo",
+      "name": "AI SEO Analysis",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seo = $input.first().json;\nconst src = $('Build Generation Context').first().json;\n\n// SEO Score: مزج AI مع فحوص برمجية\nconst aiScore = Number(seo.seo_score) || 0;\nconst titleLen = (seo.seo_title || '').length;\nconst metaLen = (seo.meta_description || '').length;\nconst hasKeyword = (seo.seo_title || '').toLowerCase().includes((src.primary_keyword || '').toLowerCase());\nconst hasSlug = !!seo.slug && seo.slug.length >= 3;\n\nconst checks = {\n  title_ok: titleLen >= 20 && titleLen <= 65,\n  meta_ok: metaLen >= 50 && metaLen <= 160,\n  keyword_in_title: hasKeyword,\n  slug_ok: hasSlug,\n  faq_present: Array.isArray(seo.faq) && seo.faq.length >= 1\n};\nconst checkPass = Object.values(checks).filter(Boolean).length;\nconst computed = Math.round(aiScore * 0.7 + (checkPass / 4) * 100 * 0.3);\n\nreturn [{ json: { ...src, seo, seo_score: computed, seo_checks: checks } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-seo-score",
+      "name": "Compute SEO Score (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "seo-ok",
+              "leftValue": "={{ $json.seo_score }}",
+              "rightValue": "={{ $env.SEO_THRESHOLD || 70 }}",
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w04-if-seo",
+      "name": "IF SEO >= Threshold",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Build Generation Context').first().json;\nconst draft = $('Validate Draft (Schema)').first().json.draft;\nconst system = 'أنت مدقق جودة محتوى صارم. أعد JSON صالحاً فقط.';\nconst user = 'نص المحتوى: ' + JSON.stringify(draft) +\n  '\\nالكلمة الرئيسية: ' + src.primary_keyword +\n  '\\nأعد: {\"quality_scores\":{\"grammar\":0,\"readability\":0,\"seo\":0,\"accuracy\":0,\"relevance\":0,\"originality\":0,\"brand_compliance\":0,\"structure\":0,\"cta_clarity\":0},\"issues\":[{\"severity\":\"critical|warning\",\"text\":\"...\",\"fix\":\"...\"}],\"overall_score\":0}. ';\n\nreturn [{ json: { task_type: 'quality_reviewer', payload: { system, user } } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-qc-prompt",
+      "name": "Build QC Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w04-ai-qc",
+      "name": "AI Quality Check",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const qc = $input.first().json;\nconst s = qc.quality_scores || {};\n\nconst overall = Math.round(\n  0.25*(s.grammar||0) + 0.20*(s.seo||0) + 0.15*(s.readability||0) +\n  0.15*(s.brand_compliance||0) + 0.10*(s.originality||0) + 0.10*(s.structure||0) +\n  0.05*(s.cta_clarity||0)\n);\nconst criticalIssues = (qc.issues || []).filter(i => i.severity === 'critical').length;\nconst pass = overall >= ($env.QUALITY_THRESHOLD || 70) && criticalIssues === 0;\n\nreturn [{ json: { ...$('Compute SEO Score (Code)').first().json, quality: qc, overall_score: overall, critical_issues: criticalIssues, quality_pass: pass } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-qc-score",
+      "name": "Compute Quality Score (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "qc-ok",
+              "leftValue": "={{ $json.quality_pass }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w04-if-qc",
+      "name": "IF QC Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1000, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Build Generation Context').first().json;\nconst revision = src.revision_count + 1;\nconst maxRev = parseInt($env.MAX_REVISIONS || '2', 10);\n\nif (revision > maxRev) {\n  return [{ json: { ...$('Compute Quality Score (Code)').first().json, status: 'escalate', reason: 'max_revisions_exceeded' } }];\n}\n\nconst draft = $('Validate Draft (Schema)').first().json.draft;\nconst issues = $('AI Quality Check').first().json.issues || $('Compute SEO Score (Code)').first().json.seo_checks;\nconst system = 'أنت محرر محتوى. أعد كتابة النص معالِجاً الملاحظات فقط. أعد JSON صالحاً.';\nconst user = 'الملاحظات: ' + JSON.stringify(issues) + '\\nالنسخة: ' + JSON.stringify(draft);\n\nreturn [{ json: { task_type: 'revision_agent', payload: { system, user }, revision_count: revision } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-revision",
+      "name": "Build Revision (max 2)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w04-ai-revise",
+      "name": "AI Revise Content",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const revised = $input.first().json;\nreturn [{ json: { ...$('Build Generation Context').first().json, draft: revised, revision_count: revised.revision_count || 0 } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-feed-recheck",
+      "name": "Feed Back to Recheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: { content_id: data.content_id, topic: data.topic, status: 'ready_for_approval', seo_score: data.seo_score, overall_score: data.overall_score, draft: data.draft, seo: data.seo, quality: data.quality, cta: data.cta, publish_date: data.publish_date, platforms: data.platforms } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w04-ready",
+      "name": "Mark Ready for Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, -300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [{ "node": "Build Generation Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Generation Context": {
+      "main": [
+        [{ "node": "AI Generate Draft", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Generate Draft": {
+      "main": [
+        [{ "node": "Validate Draft (Schema)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Draft (Schema)": {
+      "main": [
+        [{ "node": "IF Draft Valid", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Draft Valid": {
+      "main": [
+        [{ "node": "Build SEO Prompt", "type": "main", "index": 0 }],
+        [{ "node": "Build Revision (max 2)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build SEO Prompt": {
+      "main": [
+        [{ "node": "AI SEO Analysis", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI SEO Analysis": {
+      "main": [
+        [{ "node": "Compute SEO Score (Code)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Compute SEO Score (Code)": {
+      "main": [
+        [{ "node": "IF SEO >= Threshold", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF SEO >= Threshold": {
+      "main": [
+        [{ "node": "Build QC Prompt", "type": "main", "index": 0 }],
+        [{ "node": "Build Revision (max 2)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build QC Prompt": {
+      "main": [
+        [{ "node": "AI Quality Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Quality Check": {
+      "main": [
+        [{ "node": "Compute Quality Score (Code)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Compute Quality Score (Code)": {
+      "main": [
+        [{ "node": "IF QC Passed", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF QC Passed": {
+      "main": [
+        [{ "node": "Mark Ready for Approval", "type": "main", "index": 0 }],
+        [{ "node": "Build Revision (max 2)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Revision (max 2)": {
+      "main": [
+        [{ "node": "AI Revise Content", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Revise Content": {
+      "main": [
+        [{ "node": "Feed Back to Recheck", "type": "main", "index": 0 }]
+      ]
+    },
+    "Feed Back to Recheck": {
+      "main": [
+        [{ "node": "Validate Draft (Schema)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "name": "W12-error-notification",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "w12-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const err = $('Error Trigger').first().json;\nconst metadata = err.error || {};\n\nreturn [{\n  json: {\n    workflow_id: err.workflow?.id || err.workflowId || 'unknown',\n    workflow_name: err.workflow?.name || err.workflowName || 'unknown',\n    execution_id: err.executionId || err.execution?.id || 'unknown',\n    node_name: err.error?.node?.name || metadata.node?.name || 'unknown',\n    error_message: err.error?.message || metadata.message || JSON.stringify(err),\n    error_type: metadata.errorType || (err.error?.httpCode ? 'http_' + err.error.httpCode : 'unknown'),\n    timestamp: new Date().toISOString()\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w12-capture",
+      "name": "Capture Error Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1000, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Logs",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w12-log",
+      "name": "Log Error to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-800, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "retryable",
+              "leftValue": "={{ $json.error_type }}",
+              "rightValue": "429,5xx,timeout,ECONNREFUSED,ETIMEDOUT",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w12-if-retryable",
+      "name": "IF Retryable Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "w12-wait",
+      "name": "Wait (Backoff)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst retry = data.retry_count || 0;\nconst max = parseInt($env.MAX_RETRIES || '3', 10);\nif (retry >= max) {\n  return [{ json: { ...data, retry_exhausted: true } }];\n}\nreturn [{ json: { ...data, retry_count: retry + 1, retryable: true } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w12-count",
+      "name": "Count Retry (Max 3)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "channel": {
+          "value": "={{ $env.SLACK_CHANNEL }}"
+        },
+        "text": "={{ '❌ خطأ في الـ Workflow: ' + $json.workflow_name + '\\nالعقدة: ' + $json.node_name + '\\nالرسالة: ' + $json.error_message + '\\nExecution: ' + $json.execution_id }}",
+        "options": {
+          "attachments": []
+        }
+      },
+      "id": "w12-notify",
+      "name": "Slack Admin Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [0, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack App"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Capture Error Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Capture Error Context": {
+      "main": [
+        [{ "node": "Log Error to Sheets", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Error to Sheets": {
+      "main": [
+        [{ "node": "IF Retryable Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Retryable Error": {
+      "main": [
+        [{ "node": "Wait (Backoff)", "type": "main", "index": 0 }],
+        [{ "node": "Slack Admin Alert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Backoff)": {
+      "main": [
+        [{ "node": "Count Retry (Max 3)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Count Retry (Max 3)": {
+      "main": [
+        [{ "node": "Slack Admin Alert", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

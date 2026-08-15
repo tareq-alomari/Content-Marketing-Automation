@@ -1,0 +1,182 @@
+{
+  "name": "W11-optimization-decay",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "w11-trigger",
+      "name": "Schedule (Weekly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Analytics",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w11-read",
+      "name": "Read Content Analytics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-1000, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst now = Date.now();\nconst decayed = rows\n  .filter(r => r.pageviews !== undefined)\n  .map(r => {\n    const ageDays = r.published_at ? (now - new Date(r.published_at).getTime()) / 86400000 : 365;\n    const prevPageviews = +r.prev_pageviews || +r.pageviews * 1.5; // تقدير إن لم تتوفر\n    const decline = prevPageviews > 0 ? ((prevPageviews - +r.pageviews) / prevPageviews) * 100 : 0;\n    const decayed = decline >= 30 || ageDays > 365;\n    return {\n      json: {\n        content_id: r.content_id || r.page || 'unknown',\n        pageviews: +r.pageviews || 0,\n        decline_pct: Math.round(decline),\n        age_days: Math.round(ageDays),\n        decay_detected: decayed,\n        position: +r.position || 0\n      }\n    };\n  })\n  .filter(r => r.json.decay_detected);\nreturn decayed;",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w11-detect",
+      "name": "Detect Decay (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "any-decay",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w11-if",
+      "name": "IF Decay Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst system = 'أنت مدقق محتوى قديم (Content Decay Auditor). شخّص أسباب التراجع واقترح تحديثاً. أعد JSON صالحاً فقط.';\nconst user = 'المحتوى المتدهور: ' + JSON.stringify(items.map(i => i.json)) +\n  '\\nأعد لكل قطعة: {\"content_id\":\"...\",\"probable_causes\":[],\"update_recommendations\":[{\"field\":\"title|intro|keywords|structure|cta|meta|links\",\"change\":\"...\"}],\"refresh_priority\":\"low|medium|high\"}.';\nreturn [{ json: { task_type: 'decay_auditor', payload: { system, user } } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w11-prompt",
+      "name": "Build Audit Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w11-ai",
+      "name": "AI Decay Audit",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const audit = $input.first().json;\nconst audits = Array.isArray(audit) ? audit : [audit];\nreturn audits.map(a => ({ json: { ...a, status: 'needs_approval', next_action: 'content_refresh' } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w11-queue",
+      "name": "Queue Refresh for Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { workflow: 'W11', status: 'no_decay', checked: $input.all().length, timestamp: new Date().toISOString() } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w11-healthy",
+      "name": "Log Healthy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, -300]
+    }
+  ],
+  "connections": {
+    "Schedule (Weekly)": {
+      "main": [
+        [{ "node": "Read Content Analytics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Content Analytics": {
+      "main": [
+        [{ "node": "Detect Decay (Code)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Detect Decay (Code)": {
+      "main": [
+        [{ "node": "IF Decay Found", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Decay Found": {
+      "main": [
+        [{ "node": "Build Audit Prompt", "type": "main", "index": 0 }],
+        [{ "node": "Log Healthy", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Audit Prompt": {
+      "main": [
+        [{ "node": "AI Decay Audit", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Decay Audit": {
+      "main": [
+        [{ "node": "Queue Refresh for Approval", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

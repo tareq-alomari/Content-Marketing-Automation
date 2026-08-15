@@ -1,0 +1,215 @@
+{
+  "name": "W01-plan-content-engine",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "w01-trigger-schedule",
+      "name": "Schedule (Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {},
+      "id": "w01-trigger-manual",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1200, 220]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Calendar",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w01-sheets-read",
+      "name": "Read Content Calendar",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-1000, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\nconst now = new Date();\nconst bufferDays = parseInt($env.CALENDAR_BUFFER_DAYS || '3', 10);\n\nconst normalized = rows.map((item, i) => {\n  const row = item.json;\n  const publishDate = new Date(row['Publishing Date'] || row.publish_date);\n  const isDue = !isNaN(publishDate) && publishDate <= new Date(now.getTime() + bufferDays * 86400000);\n  return {\n    json: {\n      content_id: row['Content ID'] || row.content_id || 'C-' + Date.now() + '-' + i,\n      topic: row['Topic'] || row.topic,\n      pillar: row['Content Pillar'] || row.pillar,\n      persona_id: row['Persona'] || row.persona_id,\n      keyword: row['Keyword'] || row.keyword,\n      search_intent: row['Search Intent'] || row.search_intent,\n      content_type: row['Content Type'] || row.content_type,\n      platforms: (row['Platform'] || row.platforms || '').split(',').map(p => p.trim()).filter(Boolean),\n      funnel_stage: row['Funnel Stage'] || row.funnel_stage,\n      publish_date: row['Publishing Date'] || row.publish_date,\n      status: (row['Status'] || row.status || 'draft').toLowerCase(),\n      priority: row['Priority'] || row.priority || 'medium',\n      cta: row['CTA'] || row.cta,\n      target_kpi: row['Target KPI'] || row.target_kpi,\n      is_due: isDue,\n      missing_fields: ['topic', 'keyword', 'publish_date', 'cta'].filter(f => !(row[f] || row[f.replace('_',' ')]))\n    }\n  };\n});\n\nreturn normalized;",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w01-normalize",
+      "name": "Normalize Calendar Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-due",
+              "leftValue": "={{ $json.is_due }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            },
+            {
+              "id": "cond-fields",
+              "leftValue": "={{ $json.missing_fields.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w01-if-ready",
+      "name": "IF Due & Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "content-production",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w01-exec-prod",
+      "name": "Run Content Production",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "error-notification",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": false
+        }
+      },
+      "id": "w01-exec-error",
+      "name": "Notify Missing Data",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-400, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { workflow: 'W01', status: 'completed', processed: $input.all().length, timestamp: new Date().toISOString() } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w01-done",
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0]
+    }
+  ],
+  "connections": {
+    "Schedule (Daily)": {
+      "main": [
+        [
+          { "node": "Read Content Calendar", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Manual": {
+      "main": [
+        [
+          { "node": "Read Content Calendar", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Read Content Calendar": {
+      "main": [
+        [
+          { "node": "Normalize Calendar Rows", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Normalize Calendar Rows": {
+      "main": [
+        [
+          { "node": "IF Due & Complete", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "IF Due & Complete": {
+      "main": [
+        [
+          { "node": "Run Content Production", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Notify Missing Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Run Content Production": {
+      "main": [
+        [
+          { "node": "Log Completion", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Notify Missing Data": {
+      "main": [
+        [
+          { "node": "Log Completion", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "name": "W02-idea-generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "w02-trigger",
+      "name": "Schedule (Weekly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w02-read-config",
+      "name": "Read Config (Pillars/Personas)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-1000, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Calendar",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w02-read-topics",
+      "name": "Read Existing Topics (Dedup)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-1000, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "w02-merge",
+      "name": "Merge Config + Topics",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [-800, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst existing = items\n  .map(i => i.json.topic || i.json.Topic)\n  .filter(Boolean);\n\nconst configRow = items.find(i => i.json.pillar || i.json.Pillar)?.json || {};\nconst pillars = (configRow.pillars || configRow.Pillars || 'Educational,Inspirational,Data-Driven,Community')\n  .split(',').map(s => s.trim());\n\nconst persona = {\n  name: configRow.persona_name || 'السوق المستهدف',\n  description: configRow.persona_description || 'جمهور مهتم بحلول عملية' \n};\n\nreturn [{\n  json: {\n    existing_topics: existing,\n    pillars,\n    persona,\n    industry: configRow.industry || 'عام',\n    platforms: (configRow.platforms || 'LinkedIn,Instagram,X').split(',').map(s => s.trim())\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w02-build-context",
+      "name": "Build Idea Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "workflow": {
+          "value": "sub_ai-orchestrator",
+          "__rl": true
+        },
+        "options": {
+          "passInputData": true,
+          "waitForSubWorkflowCompletion": true
+        }
+      },
+      "id": "w02-ai",
+      "name": "AI Idea Generation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ideas = $input.all().map(i => i.json);\nconst scored = ideas.map(idea => {\n  const s = idea.scores || {};\n  const score = Math.round(\n    0.20*(s.relevance||0) + 0.20*(s.search_potential||0) + 0.15*(s.audience_value||0) +\n    0.15*(s.business_value||0) + 0.10*(s.competition_inverse||0) + 0.10*(s.content_potential||0) +\n    0.10*(s.conversion_potential||0)\n  );\n  return { json: { ...idea, composite_score: score, status: score >= 60 ? 'review' : 'dropped' } };\n});\nreturn scored;",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "w02-score",
+      "name": "Score Ideas (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-score",
+              "leftValue": "={{ $json.composite_score }}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w02-if",
+      "name": "IF Score >= 60",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Ideas",
+          "mode": "name"
+        },
+        "options": {
+          "keyRow": 1
+        }
+      },
+      "id": "w02-save",
+      "name": "Save Qualified Ideas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [200, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets (Service Account)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule (Weekly)": {
+      "main": [
+        [{ "node": "Read Config (Pillars/Personas)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Config (Pillars/Personas)": {
+      "main": [
+        [{ "node": "Merge Config + Topics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Existing Topics (Dedup)": {
+      "main": [
+        [{ "node": "Merge Config + Topics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Config + Topics": {
+      "main": [
+        [{ "node": "Build Idea Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Idea Context": {
+      "main": [
+        [{ "node": "AI Idea Generation", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Idea Generation": {
+      "main": [
+        [{ "node": "Score Ideas (Code)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Score Ideas (Code)": {
+      "main": [
+        [{ "node": "IF Score >= 60", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Score >= 60": {
+      "main": [
+        [{ "node": "Save Qualified Ideas", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
