@@ -2,6 +2,12 @@
 
 هذه المجلد يحتوي على Workflows قابلة للاستيراد في n8n (Import from File / Clipboard).
 
+## منصات النشر
+
+النظام ينشر إلى 6 منصات عبر Buffer (`W08-publishing-distribution`):
+**LinkedIn · Instagram · X (Twitter) · Facebook · TikTok · YouTube**
+مع بديل مباشر عبر APIs (X API v2، Meta Graph، LinkedIn API، YouTube Data API، TikTok Content Posting API).
+
 ## طريقة الاستيراد
 
 1. افتح n8n

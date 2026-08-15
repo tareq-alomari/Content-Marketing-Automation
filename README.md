@@ -53,7 +53,22 @@
 
 ---
 
-## 🚀 البداية السريعة
+## 📱 منصات النشر
+
+النظام ينشر المحتوى تلقائياً إلى **6 منصات** عبر Buffer (Node رسمي) أو الـ APIs المباشرة، مع توليد محتوى مخصص لكل منصة (من خلال `W06-repurposing-engine`):
+
+| المنصة | دورها | أنواع المحتوى | الطريقة الافتراضية |
+|---|---|---|---|
+| **LinkedIn** | B2B وقيادة فكرية | مقالات، نصوص طويلة، كاروسيل | Buffer node |
+| **Instagram** | بصرية ونمو الوعي | صور، Reels، Stories | Buffer node |
+| **X (Twitter)** | أخبار وآراء ونقاش | منشورات قصيرة، Threads | Buffer node |
+| **Facebook** | مجتمع ووصول واسع | منشورات، صور، فيديو | Buffer node |
+| **TikTok** | وصول واسع وفيديو قصير | فيديوهات قصيرة (Reels) | Buffer node |
+| **YouTube** | محتوى طويل وSEO فيديو | فيديوهات تعليمية | Buffer node |
+
+> **مرونة التكامل:** يدعم التصميم أيضاً الـ APIs المباشرة لكل منصة (X API v2، Meta Graph، LinkedIn API، YouTube Data API، TikTok Content Posting API) كبديل عن Buffer عند توفر الـ Credentials.
+
+### 🚀 البداية السريعة
 
 ### المتطلبات
 
